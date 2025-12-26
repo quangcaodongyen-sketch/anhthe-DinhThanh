@@ -1,0 +1,7 @@
+{
+  "name": "Tiem Giang App",
+  "description": "An AI-powered application by Đinh Thành Star to restore, enhance, and colorize old photographs. Contact: 0915213717.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
