@@ -19,14 +19,18 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose }) => {
   }, [isOpen]);
 
   const handleSave = () => {
-    if (key.trim()) {
-      localStorage.setItem('GEMINI_API_KEY', key.trim());
+    const trimmedKey = key.trim();
+    if (trimmedKey) {
+      localStorage.setItem('GEMINI_API_KEY', trimmedKey);
+      // Phát sự kiện storage cho chính tab hiện tại
+      window.dispatchEvent(new Event('storage'));
       setStatus('saved');
       setTimeout(() => {
         onClose();
       }, 800);
     } else {
       localStorage.removeItem('GEMINI_API_KEY');
+      window.dispatchEvent(new Event('storage'));
       onClose();
     }
   };
@@ -34,6 +38,7 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose }) => {
   const handleClear = () => {
     setKey('');
     localStorage.removeItem('GEMINI_API_KEY');
+    window.dispatchEvent(new Event('storage'));
     setStatus('idle');
   };
 
@@ -53,21 +58,34 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose }) => {
         </header>
         
         <div className="p-6 space-y-6">
-          <div className="bg-cyan-900/20 border border-cyan-700/50 p-4 rounded-xl text-sm text-cyan-100 flex flex-col gap-2">
+          <div className="bg-cyan-900/20 border border-cyan-700/50 p-4 rounded-xl text-sm text-cyan-100 flex flex-col gap-3">
             <p className="font-semibold text-cyan-400">Ứng dụng yêu cầu API Key Gemini để hoạt động.</p>
-            <p className="text-xs opacity-80 leading-relaxed">Key này hoàn toàn miễn phí từ Google. Nó giúp bạn tạo ảnh không giới hạn và bảo mật thông tin cá nhân.</p>
-            <a 
-              href="https://aistudio.google.com/app/apikey" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="w-fit mt-1 px-4 py-2 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/50 rounded-lg text-cyan-300 font-bold transition-all text-xs"
-            >
-              Lấy API Key Miễn Phí Tại Đây →
-            </a>
+            <p className="text-xs opacity-90 leading-relaxed italic">
+              * Key này hoàn toàn miễn phí từ Google. Khi hết giới hạn (quota) trong ngày, bạn có thể tạo Key mới để tiếp tục dùng.
+            </p>
+            
+            <div className="flex flex-col gap-2 pt-2">
+                <a 
+                href="https://aistudio.google.com/app/apikey" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="w-full text-center py-2 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-bold rounded-lg transition-all text-xs uppercase tracking-wide"
+                >
+                1. Lấy API Key Miễn Phí Tại Đây
+                </a>
+                <a 
+                href="https://tinyurl.com/hdsdpmTHT" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-center text-cyan-400 hover:underline text-[11px] font-medium"
+                >
+                2. Xem video hướng dẫn cách lấy key
+                </a>
+            </div>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2 ml-1">Dán API Key của bạn:</label>
+            <label className="block text-sm font-semibold text-slate-300 mb-2 ml-1">Dán mã API Key của bạn:</label>
             <input
               type="password"
               value={key}
