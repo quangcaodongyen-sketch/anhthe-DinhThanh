@@ -2,31 +2,41 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 import type { RestorationOptions } from '../types';
 
 /**
- * Hàm lấy instance AI. 
- * Phải được gọi bên trong các hàm thực thi (không để ở phạm vi toàn cục)
- * để đảm bảo lấy được API Key mới nhất từ localStorage.
+ * Hàm lấy instance AI an toàn. 
+ * Instance được tạo mới mỗi khi gọi để đảm bảo lấy được API Key mới nhất từ localStorage.
  */
 const getAi = (): GoogleGenAI => {
+    // 1. Ưu tiên lấy key người dùng đã nhập thủ công lưu trong trình duyệt
     const userApiKey = localStorage.getItem('GEMINI_API_KEY');
-    // Ưu tiên key người dùng nhập, sau đó mới đến biến môi trường Vercel
-    const apiKey = userApiKey || process.env.API_KEY;
     
-    if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
+    // 2. Nếu không có, lấy từ biến môi trường (inject bởi Vercel)
+    const apiKey = (userApiKey && userApiKey.trim() !== "") ? userApiKey : process.env.API_KEY;
+    
+    if (!apiKey || apiKey === "undefined" || apiKey.trim() === "" || apiKey === "your_api_key_here") {
         throw new Error("API_KEY_MISSING");
     }
+    
     return new GoogleGenAI({ apiKey });
 };
 
+/**
+ * Xử lý các lỗi từ Gemini API sang tiếng Việt dễ hiểu
+ */
 const parseGeminiError = (error: unknown): string => {
-    console.error("Gemini API Error:", error);
+    console.error("Gemini API Error details:", error);
+    
     if (error instanceof Error && error.message === "API_KEY_MISSING") {
-        return "Vui lòng nhấn vào biểu tượng chìa khóa vàng ở góc trên để nhập API Key Gemini miễn phí.";
+        return "CHƯA CÓ API KEY: Vui lòng nhấn vào biểu tượng chìa khóa vàng ở góc trên để nhập Key Gemini.";
     }
     
-    const defaultMessage = "Đã xảy ra lỗi khi kết nối với AI. Vui lòng kiểm tra lại API Key.";
+    const defaultMessage = "Lỗi kết nối AI. Vui lòng kiểm tra lại API Key hoặc yêu cầu của bạn.";
     if (error instanceof Error && error.message) {
-        if (error.message.includes("API_KEY_INVALID") || error.message.includes("not valid")) {
-            return "API Key không hợp lệ. Vui lòng lấy key mới từ Google AI Studio.";
+        const msg = error.message.toLowerCase();
+        if (msg.includes("api_key_invalid") || msg.includes("not valid") || msg.includes("key not found")) {
+            return "API Key không hợp lệ hoặc đã bị vô hiệu hóa. Vui lòng lấy key mới từ Google AI Studio.";
+        }
+        if (msg.includes("quota") || msg.includes("429")) {
+            return "API Key này đã hết hạn mức sử dụng miễn phí. Vui lòng thử lại sau hoặc đổi Key khác.";
         }
         return error.message;
     }
@@ -34,9 +44,10 @@ const parseGeminiError = (error: unknown): string => {
 };
 
 const UNBREAKABLE_DIRECTIVE = `
-// YÊU CẦU TUYỆT ĐỐI:
-// Bảo toàn 100% danh tính và cấu trúc khuôn mặt. Không thay đổi mắt, mũi, miệng.
-// Kết quả phải là ảnh thực tế (photorealistic), chất lượng 8K.
+// YÊU CẦU TUYỆT ĐỐI CHO AI:
+// Bảo toàn 100% danh tính và cấu trúc khuôn mặt của chủ thể.
+// Không thay đổi vị trí mắt, mũi, miệng. Giữ nguyên thần thái.
+// Kết quả PHẢI là ảnh thực tế (photorealistic), chất lượng 8K siêu sắc nét.
 // Mặc định chủ thể là người Việt Nam.
 `;
 
@@ -45,7 +56,7 @@ export const findSchoolLogo = async (schoolName: string): Promise<{ logoUrl: str
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Tìm link URL logo chính thức cho trường: "${schoolName}". Trả về JSON: {"logoUrl": "link" hoặc null}`,
+            contents: `Tìm link logo chính thức cho: "${schoolName}". Trả về JSON: {"logoUrl": "link" hoặc null}`,
             config: { responseMimeType: "application/json" }
         });
         const result = JSON.parse(response.text);
@@ -60,7 +71,7 @@ export const analyzeImageForRestoration = async (base64ImageData: string, mimeTy
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: { parts: [{ inlineData: { data: base64ImageData, mimeType } }, { text: "Phân tích ảnh và tạo prompt tiếng Việt để phục hồi ảnh này." }] }
+            contents: { parts: [{ inlineData: { data: base64ImageData, mimeType } }, { text: "Phân tích ảnh cũ này và đề xuất prompt tiếng Việt để phục hồi nó." }] }
         });
         return { prompt: response.text?.trim() || null, error: null };
     } catch (error) {
@@ -90,9 +101,8 @@ export const restoreImage = async (
 ): Promise<{ image: string | null; error: string | null; }> => {
     try {
         const ai = getAi();
-        const model = options.model === 'Nano Banana HD' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
-        
-        const prompt = `${UNBREAKABLE_DIRECTIVE}\nNhiệm vụ: Phục hồi ảnh cũ này thành ảnh màu hiện đại, siêu nét. Yêu cầu thêm: ${options.customRequest || 'lên màu tự nhiên'}`;
+        const model = 'gemini-2.5-flash-image';
+        const prompt = `${UNBREAKABLE_DIRECTIVE}\nNhiệm vụ: Phục hồi ảnh cũ này thành ảnh màu hiện đại, siêu nét. Yêu cầu: ${options.customRequest || 'Lên màu tự nhiên'}`;
 
         const parts: any[] = [{ text: prompt }, { inlineData: { data: base64ImageData, mimeType } }];
         if (clothingFileData) parts.push({ inlineData: clothingFileData });
@@ -106,12 +116,10 @@ export const restoreImage = async (
 
         for (const candidate of response.candidates || []) {
             for (const part of candidate.content?.parts || []) {
-                if (part.inlineData?.data) {
-                    return { image: part.inlineData.data, error: null };
-                }
+                if (part.inlineData?.data) return { image: part.inlineData.data, error: null };
             }
         }
-        throw new Error('AI không tạo ra ảnh. Hãy thử lại.');
+        throw new Error('AI không tạo được ảnh. Thử lại yêu cầu khác.');
     } catch (error) {
         return { image: null, error: parseGeminiError(error) };
     }
@@ -124,20 +132,19 @@ export const createIDPhoto = async (
 ): Promise<{ image: string | null; error: string | null; }> => {
     try {
         const ai = getAi();
-        const prompt = `${UNBREAKABLE_DIRECTIVE}\nNhiệm vụ: Tạo ảnh thẻ chuyên nghiệp phông nền ${options.backgroundColor}, trang phục ${options.clothingDescription}.`;
+        const model = 'gemini-2.5-flash-image';
+        const prompt = `${UNBREAKABLE_DIRECTIVE}\nTạo ảnh thẻ phông nền ${options.backgroundColor}, trang phục ${options.clothingDescription}.`;
         const parts: any[] = [{ text: prompt }, { inlineData: { data: base64SubjectData, mimeType: subjectMimeType } }];
 
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
+            model,
             contents: { parts },
             config: { responseModalities: [Modality.IMAGE] }
         });
 
         for (const candidate of response.candidates || []) {
             for (const part of candidate.content?.parts || []) {
-                if (part.inlineData?.data) {
-                    return { image: part.inlineData.data, error: null };
-                }
+                if (part.inlineData?.data) return { image: part.inlineData.data, error: null };
             }
         }
         throw new Error('AI không trả về ảnh thẻ.');
@@ -168,7 +175,7 @@ export const upscaleImage = async (base64ImageData: string, mimeType: string, fa
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: `Upscale x${factor}, làm nét cực hạn.` }, { inlineData: { data: base64ImageData, mimeType } }] },
+            contents: { parts: [{ text: `Upscale x${factor}, cực nét.` }, { inlineData: { data: base64ImageData, mimeType } }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -182,10 +189,10 @@ export const upscaleImage = async (base64ImageData: string, mimeType: string, fa
 
 export const generate360Video = async (base64ImageData: string, mimeType: string): Promise<string> => {
     const ai = getAi();
-    const userApiKey = localStorage.getItem('GEMINI_API_KEY') || process.env.API_KEY;
+    const currentKey = localStorage.getItem('GEMINI_API_KEY') || process.env.API_KEY;
     let operation = await ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
-        prompt: "360 degree parallax animation.",
+        prompt: "360 degree orbit animation.",
         image: { imageBytes: base64ImageData, mimeType },
         config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
     });
@@ -194,16 +201,16 @@ export const generate360Video = async (base64ImageData: string, mimeType: string
         operation = await ai.operations.getVideosOperation({ operation });
     }
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-    const response = await fetch(`${downloadLink}&key=${userApiKey}`);
+    const response = await fetch(`${downloadLink}&key=${currentKey}`);
     return URL.createObjectURL(await response.blob());
 };
 
 export const animatePortrait = async (base64ImageData: string, mimeType: string): Promise<string> => {
     const ai = getAi();
-    const userApiKey = localStorage.getItem('GEMINI_API_KEY') || process.env.API_KEY;
+    const currentKey = localStorage.getItem('GEMINI_API_KEY') || process.env.API_KEY;
     let operation = await ai.models.generateVideos({
         model: 'veo-3.1-generate-preview',
-        prompt: "Natural portrait animation.",
+        prompt: "Subtle facial animation.",
         image: { imageBytes: base64ImageData, mimeType },
         config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '9:16' }
     });
@@ -212,7 +219,7 @@ export const animatePortrait = async (base64ImageData: string, mimeType: string)
         operation = await ai.operations.getVideosOperation({ operation });
     }
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-    const response = await fetch(`${downloadLink}&key=${userApiKey}`);
+    const response = await fetch(`${downloadLink}&key=${currentKey}`);
     return URL.createObjectURL(await response.blob());
 };
 
@@ -221,7 +228,7 @@ export const removeObjectFromImage = async (base64Image: string, base64Mask: str
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: "Xóa vật thể vùng trắng." }, { inlineData: { data: base64Image, mimeType } }, { inlineData: { data: base64Mask, mimeType: 'image/png' } }] },
+            contents: { parts: [{ text: "Xóa vật thể." }, { inlineData: { data: base64Image, mimeType } }, { inlineData: { data: base64Mask, mimeType: 'image/png' } }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -238,7 +245,7 @@ export const applyProColor = async (base64: string, mime: string) => {
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: "AI Beauty Retouch, smooth skin." }, { inlineData: { data: base64, mimeType: mime } }] },
+            contents: { parts: [{ text: "Beauty Retouch." }, { inlineData: { data: base64, mimeType: mime } }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -255,7 +262,7 @@ export const recolorImage = async (base64: string, mime: string, style: string) 
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: `Chỉnh màu phong cách ${style}` }, { inlineData: { data: base64, mimeType: mime } }] },
+            contents: { parts: [{ text: `Chỉnh màu ${style}` }, { inlineData: { data: base64, mimeType: mime } }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -272,7 +279,7 @@ export const applyArtisticStyle = async (base64: string, mime: string, style: st
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: `Phong cách nghệ thuật: ${style}` }, { inlineData: { data: base64, mimeType: mime } }] },
+            contents: { parts: [{ text: `Style ${style}` }, { inlineData: { data: base64, mimeType: mime } }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -289,7 +296,7 @@ export const blurBackground = async (base64: string, mime: string, intensity: st
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: `Làm mờ nền mức độ ${intensity}` }, { inlineData: { data: base64, mimeType: mime } }] },
+            contents: { parts: [{ text: `Mờ nền ${intensity}` }, { inlineData: { data: base64, mimeType: mime } }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -306,7 +313,7 @@ export const restoreDocument = async (base64: string, mime: string) => {
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: "Restore document, clean ink." }, { inlineData: { data: base64, mimeType: mime } }] },
+            contents: { parts: [{ text: "Làm sạch văn bản." }, { inlineData: { data: base64, mimeType: mime } }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -323,7 +330,7 @@ export const mimicImageStyle = async (subject: any, style: any) => {
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: "Mimic style. Preserve identity." }, { inlineData: style }, { inlineData: subject }] },
+            contents: { parts: [{ text: "Mimic style." }, { inlineData: style }, { inlineData: subject }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -331,7 +338,7 @@ export const mimicImageStyle = async (subject: any, style: any) => {
                 if (part.inlineData?.data) return { image: part.inlineData.data, error: null };
             }
         }
-        return { image: null, error: "Lỗi mimic style." };
+        return { image: null, error: "Lỗi sao chép style." };
     } catch (e) { return { image: null, error: parseGeminiError(e) }; }
 };
 
@@ -340,7 +347,7 @@ export const generateStyledImageFromPrompt = async (base64: string, mime: string
         const ai = getAi();
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: `${promptText}. Preserve identity.` }, { inlineData: { data: base64, mimeType: mime } }] },
+            contents: { parts: [{ text: `${promptText}` }, { inlineData: { data: base64, mimeType: mime } }] },
             config: { responseModalities: [Modality.IMAGE] }
         });
         for (const candidate of response.candidates || []) {
@@ -348,15 +355,15 @@ export const generateStyledImageFromPrompt = async (base64: string, mime: string
                 if (part.inlineData?.data) return { image: part.inlineData.data, error: null };
             }
         }
-        return { image: null, error: "Lỗi tạo ảnh style." };
+        return { image: null, error: "Lỗi tạo ảnh." };
     } catch (e) { return { image: null, error: parseGeminiError(e) }; }
 };
 
 export const changeSubjectBackground = async (subject: any, bg: any) => {
     try {
         const ai = getAi();
-        const parts: any[] = [{ text: "Background replacement." }, { inlineData: subject }];
-        if (bg.type === 'prompt') parts[0].text += ` New background: ${bg.value}`;
+        const parts: any[] = [{ text: "Thay nền." }, { inlineData: subject }];
+        if (bg.type === 'prompt') parts[0].text += ` Nền mới: ${bg.value}`;
         else parts.push({ inlineData: bg.value });
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
